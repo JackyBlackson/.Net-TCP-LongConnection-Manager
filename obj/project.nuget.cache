@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "XLKTZlE8xYYXarpfmDuix2e7XpaC1PFMnXcgQNe3NjZOj0Lti2RRebQ9DSnnnPCgENAb+9Dr/DvzmDuqw/lQVQ==",
+  "dgSpecHash": "YoVAyGup0E2DAp94XWHEagrGgrsZ5Wgw1hLJZRFU/PW1ex+LMdy042TgFhm72mGC+gCzOWxBua5D9g9rzSb3yw==",
   "success": true,
-  "projectFilePath": "C:\\Users\\Jacky\\source\\repos\\TCP_LongConnection_Server\\ConsoleApp1.csproj",
+  "projectFilePath": "C:\\Users\\Jacky\\source\\repos\\TCP_LongConnection_Server\\.Net-TCP-LongConnection-Manager\\ConsoleApp1.csproj",
   "expectedPackageFiles": [],
   "logs": []
 }
