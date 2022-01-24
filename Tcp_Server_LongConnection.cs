@@ -19,16 +19,16 @@ public class TcpLongServer
 
     public int ListenFreq;
     public Thread thisThread;
-    public byte[] HeartBeatFrame;
 
     //类的构造函数
-    public TcpLongServer(string ip, int port, int maxlistenamount)
+    public TcpLongServer(string ip, int port, int maxlistenamount, int maxsilenttime)
     {
         //初始化成员
         ServerSocket = null;
         MaxListenAmount = maxlistenamount;
         ListenFreq = 100;
         thisServerThreader = new ServerThreading(ip, port, MaxListenAmount, ListenFreq);
+        thisServerThreader.MaxSilentTime = maxsilenttime;
         thisThread = new Thread(new ThreadStart(thisServerThreader.Threading));
     }
 
@@ -45,15 +45,21 @@ public class TcpLongServer
     {
         ListenFreq = freq;
     }
-    public void setHeartBeatFrame(byte[] template)
-    {
-        HeartBeatFrame = template;
-    }
     ////////////////////////////////////////////////
 
     public void Start()
     {
         thisThread.Start();
+    }
+
+    public void Close()
+    {
+        for(int i = 0; i < MaxListenAmount; i++)
+        {
+            thisServerThreader.AcceptQueue[i].Send(System.Text.Encoding.UTF8.GetBytes("Server closed."));
+            thisServerThreader.AcceptQueue[i].ThisSocket.Close();
+        }
+        thisServerThreader.Server.Close();
     }
 
     //发送数据的方法，但是会覆盖当前的缓冲区，并且会立即打包成一个数据包发走
@@ -85,13 +91,6 @@ public class TcpLongServer
         thisServerThreader.AcceptQueue[connectionIndex].OutBuffer.Clear(20480);
         return temp;
     }
-
-    public void SetHeartBeatFrame(byte[] template, int maxSilentTime)
-    {
-        thisServerThreader.HeartBeatFrame = template;
-        thisServerThreader.MaxSilentTime = maxSilentTime;
-        thisServerThreader.UpdateHeartBeatFrame(); 
-    }
 }
 
 
@@ -118,7 +117,6 @@ public class ServerThreading
 
     public bool isConnected;        //是否链接的状态
 
-    public byte[] HeartBeatFrame { get; set; }
 
     public long MaxSilentTime { get; set; }
 
@@ -161,7 +159,7 @@ public class ServerThreading
                 if (AcceptQueue[i] != null && AcceptQueue[i].IsConnected == false)
                 {
                     AcceptQueue[i] = null;
-                    Console.WriteLine("[Accept Thread] 检测到连接[{0}]已断开，Socket将被销毁", i);
+                    Console.WriteLine("[Accept Thread] 检测到连接[{0}]被客户端主动断开，Socket将被销毁", i);
                 }
             }
             //检查每个连接是否无响应
@@ -171,26 +169,21 @@ public class ServerThreading
                 {
                     if(DateTime.Now.ToUniversalTime().Second - AcceptQueue[i].LastReceiveTime.Second >= MaxSilentTime)
                     {
+                        AcceptQueue[i].Send(System.Text.Encoding.UTF8.GetBytes("Client time out. Connection will close."));
                         AcceptQueue[i].IsWorking = false;
                         AcceptQueue[i].IsConnected = false;
                         Console.WriteLine("[Accept Thread] 检测到连接[{0}]无响应，Socket将被销毁", i);
                         Thread.Sleep(50);
+                        AcceptQueue[i].ThisSocket.Close();
                         AcceptQueue[i] = null;
+                    }
+                    else
+                    {
+                        Console.WriteLine("[Accept Thread] 连接[{0}]最新相应在{1}秒之前，通过", i, DateTime.Now.ToUniversalTime().Second - AcceptQueue[i].LastReceiveTime.Second);
                     }
                 }
             }
             Thread.Sleep(500);
-        }
-    }
-
-    public void UpdateHeartBeatFrame()
-    {
-        for(int i = 0; i < MaxListenAmount; i++)
-        {
-            if (AcceptQueue[i] != null)
-            {
-                AcceptQueue[i].LocalHeartBeatFrame = HeartBeatFrame;
-            }
         }
     }
 
@@ -212,7 +205,6 @@ public class ServerThreading
             Console.WriteLine("[Accept Thread] 当前空闲：[{0}]", queueIndex, AcceptQueue);
 
             AcceptQueue[queueIndex] = new AcceptedThreadObjective(listener.EndAccept(ar), ListenFreq);
-            AcceptQueue[queueIndex].LocalHeartBeatFrame = HeartBeatFrame;
             AcceptQueue[queueIndex].ConnectionId = queueIndex;
             AcceptQueue[queueIndex].Begin();
             Console.WriteLine("[Accept Thread] 建立了新的连接，id为 {0}，目标为{1}", queueIndex, AcceptQueue[queueIndex].ThisSocket.RemoteEndPoint);
@@ -262,7 +254,6 @@ public class AcceptedThreadObjective
     public byte[] SendBuffer;       //发送的缓冲区
 
     public DateTime LastReceiveTime;
-    public byte[] LocalHeartBeatFrame { get; set; }
 
     public AcceptedThreadObjective(Socket socket, int listenfreq)
     {
@@ -274,7 +265,6 @@ public class AcceptedThreadObjective
         SendBuffer = new byte[2048];
         OutBuffer = new RingBufferManager(2048);
         LastReceiveTime = DateTime.Now.ToUniversalTime();
-        LocalHeartBeatFrame = new byte[2048];
     }
 
     /// <summary>
@@ -287,14 +277,13 @@ public class AcceptedThreadObjective
             //将发送的状态设置为真
             IsWorking = true;
             IsConnected = true;
-            Console.WriteLine("1");
+
             //启动接收的线程
             ThisSocket.BeginReceive(ReceiveBuffer, 0, ReceiveBuffer.Length, SocketFlags.None, new AsyncCallback(ReceiveCallback), ThisSocket);
-            Console.WriteLine("2");
+
             //启动发送的线程
             //ThisSocket.BeginSend(SendBuffer, 0, SendBuffer.Length, SocketFlags.None, new AsyncCallback(SendCallback), ThisSocket);
-
-            Console.WriteLine("3");
+            
         }
         else if (ThisSocket == null)
         {
@@ -350,13 +339,20 @@ public class AcceptedThreadObjective
     public void ReceiveCallback(IAsyncResult result)
     {
         //初始化
+        
         Socket ts = (Socket)result.AsyncState;
-        ts.EndReceive(result);
+        if (IsConnected == true && IsWorking == true)
+        {
+            ts.EndReceive(result);
+        }
         result.AsyncWaitHandle.Close();
 
         //读取监听，并写入输出缓冲区，并记录
         //Console.WriteLine("[Server Thread {0}] （前）缓冲区位置：End: {1}, Start: {2}, length: {3}", ConnectionId,  OutBuffer.DataEnd, OutBuffer.DataStart, OutBuffer.DataCount);
-        Console.WriteLine("[Server Thread {0}] 从{1}收到消息：{2}", ConnectionId, ThisSocket.RemoteEndPoint, System.Text.Encoding.UTF8.GetString(ReceiveBuffer));
+        if (IsConnected == true && IsWorking == true)
+        {
+            Console.WriteLine("[Server Thread {0}] 从{1}收到消息：{2}", ConnectionId, ThisSocket.RemoteEndPoint, System.Text.Encoding.UTF8.GetString(ReceiveBuffer));
+        }
 
         //获取读取的数据的长度
         int datalength = 0;
@@ -379,11 +375,10 @@ public class AcceptedThreadObjective
         }
         */
         
-        //如果符合心跳帧，那么就写入最新的日期时间
-        if(ReceiveBuffer == LocalHeartBeatFrame)
-        {
-            LastReceiveTime = DateTime.Now.ToUniversalTime();
-        }
+        //如果收到信息，那么就写入最新的时间
+
+        LastReceiveTime = DateTime.Now.ToUniversalTime();
+
         
 
         if (IsWorking == true)

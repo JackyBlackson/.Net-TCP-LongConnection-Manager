@@ -21,7 +21,9 @@ namespace TCP_Connection
 
 
             //TcpLongServer thisServer = new TcpLongServer(input[0], int.Parse(input[1]), int.Parse(input[2]));
-            TcpLongServer thisServer = new TcpLongServer("192.168.3.85", 2000, 100);
+
+            byte[] HeartBeatFrame = new byte[2048];
+            TcpLongServer thisServer = new TcpLongServer("192.168.3.85", 2000, 100, 5);
             thisServer.Start();
 
             while (true)
